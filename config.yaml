@@ -1,8 +1,11 @@
 # =============================================================================
 # ESM-2 Protein Classifier — configuration
 # =============================================================================
-# Every setting here can also be overridden on the command line, e.g.
+# Most settings here can also be overridden on the command line, e.g.
 #   python train.py --config config.yaml --train my.fasta --epochs 5 --pooling mean
+# Exceptions (set them in this file): training.weight_decay,
+# training.class_weighting, training.logging_steps and embeddings.fp16;
+# --save-backbone can only turn output.save_backbone on, not off.
 # Command-line values win over values in this file. Settings missing from both
 # fall back to built-in defaults (shown in the comments below).
 # =============================================================================

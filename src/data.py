@@ -89,7 +89,7 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True, split_la
     if n_extra_delims:
         print(f"  WARNING: {n_extra_delims:,} header(s) contain more than one '{delimiter}' "
               f"(e.g. UniProt '>sp|P0A7V8|RS4_ECOLI'), so the label may have been read from the "
-              f"wrong part of the header; see docs/data_format.md.")
+              f"wrong part of the header. Reduce headers to '>ID{delimiter}label'.")
     dup = [k for k, v in Counter(ids).items() if v > 1]
     if dup:
         print(f"  WARNING: {len(dup):,} sequence ID(s) occur more than once (e.g. '{dup[0]}'), "
