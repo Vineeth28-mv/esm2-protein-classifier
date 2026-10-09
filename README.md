@@ -63,7 +63,7 @@ MKKLLIVSAALLAGCSQ...
 MSNQEIRVLLVDDHPLV...
 ```
 
-- Everything before the first `|` is the sequence ID; the part after it is the label. A different separator or position can be set with `--label-delimiter` / `--label-field` (counted from 0); the ID is always the part that is not the label. For example, for headers like `>familyX;toyX_0001` use `--label-delimiter ";" --label-field 0`, which gives ID `toyX_0001` and label `familyX`.
+- Everything before the first `|` is the sequence ID; the part after it is the label. A different separator or position can be set with `--label-delimiter` / `--label-field` (counted from 0); the ID is always the part that is not the label. For example, for headers like `>familyX;toyX_0001` use `--label-delimiter ";" --label-field 0`, which gives ID `toyX_0001` and label `familyX`. See [docs/data_format.md](docs/data_format.md) for all supported header formats, with examples.
 - Labels can be any text without spaces or `|`, for example `familyX`, `integrase`, `class_3`.
 - You need **at least two classes**. A typical feasibility test is binary: your family vs. a background set.
 - Stop codons (`*`) are removed automatically wherever they occur (`ANPP*NNNN` → `ANPPNNNN`), and sequences are upper-cased. Sequences with a `*` in the middle are listed in the log so you can check them. A sequence made only of stop codons stops the run with an error, since nothing would be left.
@@ -144,7 +144,7 @@ python predict.py --model results/familyX_run1/best_model --fasta test.fasta \
                   --out test_predictions.csv --labelled
 ```
 
-With `--labelled`, labels are read the same way as in training (the label format is saved with the model).
+With `--labelled`, labels are read the same way as in training (the label format is saved with the model). See [docs/data_format.md](docs/data_format.md#prediction) for example files and output for both modes.
 
 The saved model stores only the trained head (small) plus the name of the ESM-2 model, which is loaded from Hugging Face (or its local cache) when `predict.py` runs. To make the model folder self-contained, e.g. for an offline cluster node or another computer, train with `--save-backbone` to copy ESM-2 into it.
 
