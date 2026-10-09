@@ -68,10 +68,10 @@ MKKLLIVSAALLAGCSQ...
 MSNQEIRVLLVDDHPLV...
 ```
 
-- Everything before the first `|` is the sequence ID; the part after it is the label. (A different separator or field can be set with `--label-delimiter` / `--label-field`.)
+- Everything before the first `|` is the sequence ID; the part after it is the label. A different separator or position can be set with `--label-delimiter` / `--label-field` (counted from 0); the ID is always the part that is not the label. For example, for headers like `>familyX;toyX_0001` use `--label-delimiter ";" --label-field 0`, which gives ID `toyX_0001` and label `familyX`.
 - Labels can be any text without spaces or `|`, for example `familyX`, `integrase`, `class_3`.
 - You need **at least two classes**. A typical feasibility test is binary: your family vs. a background set.
-- Stop codons (`*`) are removed automatically wherever they occur (`ANPP*NNNN` → `ANPPNNNN`), and sequences are upper-cased. Sequences with a `*` in the middle are listed in the log so you can check them.
+- Stop codons (`*`) are removed automatically wherever they occur (`ANPP*NNNN` → `ANPPNNNN`), and sequences are upper-cased. Sequences with a `*` in the middle are listed in the log so you can check them. A sequence made only of stop codons stops the run with an error, since nothing would be left.
 
 Provide:
 
@@ -105,6 +105,8 @@ Every epoch is evaluated, and the one with the highest **MCC** is kept (you can 
 |---|---|---|
 | `--val` file | validation set | once, for the chosen epoch only |
 | no validation file (`--no-val`, or `val: null` in the config) | test set | for every epoch |
+
+`--no-val` overrides a validation file set in `config.yaml`; giving both `--val` and `--no-val` on the command line is an error.
 
 Without a validation set, the selected epoch's test scores can be slightly optimistic, because the same data was used to choose and to report. The outputs say so explicitly, and they also report the **final epoch's** test scores next to the best ones so you can see the difference. With a large, independent test set and a flat curve across epochs, the difference is usually negligible.
 
@@ -262,7 +264,7 @@ python train.py --config config.yaml --model facebook/esm2_t12_35M_UR50D --out r
 python tests/run_tests.py
 ```
 
-Runs 35 checks in 2–4 minutes on a CPU, without internet: it builds a tiny randomly initialised ESM-2 and checks, among other things, that `cls` pooling reproduces Hugging Face's `EsmForSequenceClassification` exactly, that mean pooling ignores special tokens and padding, that the cache is reused correctly, that results are reproducible, and that `predict.py` reproduces the training predictions. It tests the code, not the quality of real ESM-2.
+Runs 34 checks in 2–4 minutes on a CPU, without internet: it builds a tiny randomly initialised ESM-2 and checks, among other things, that `cls` pooling reproduces Hugging Face's `EsmForSequenceClassification` exactly, that mean pooling ignores special tokens and padding, that the cache is reused correctly, that results are reproducible, and that `predict.py` reproduces the training predictions. It tests the code, not the quality of real ESM-2.
 
 ---
 

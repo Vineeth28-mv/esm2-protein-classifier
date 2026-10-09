@@ -15,11 +15,19 @@ MKKLLIVSAALLAGCSQVNAETIKVGVLHSLSGTMAISETAL
 
 Rules:
 
-- Everything before the first `|` is the ID; the field after it is the label. You can change both with `label_delimiter` and `label_field` in `config.yaml`, or with `--label-delimiter` and `--label-field` on the command line (fields are counted from 0, so `>ID|label` has the label in field 1).
+- Everything before the first `|` is the ID; the field after it is the label. You can change both with `label_delimiter` and `label_field` in `config.yaml`, or with `--label-delimiter` and `--label-field` on the command line. Fields are counted from 0, and the ID is always the field that is *not* the label:
+
+  | Header | Settings | ID | Label |
+  |---|---|---|---|
+  | `>toyX_0001\|familyX` | default (`\|`, field 1) | `toyX_0001` | `familyX` |
+  | `>familyX;toyX_0001` | `--label-delimiter ";" --label-field 0` | `toyX_0001` | `familyX` |
+
+  A header with more than two fields (e.g. UniProt style `>sp|P0A7V8|RS4_ECOLI|other`) gives a warning, because the label may then be read from the wrong field.
+- A sequence that contains only stop codons (`***`) stops the run with an error, because nothing is left after removing them.
 - Anything after the first space in the header is ignored.
 - Labels must not contain spaces or `|`. They are case-sensitive (`FamilyX` and `familyX` are different classes).
 - Every training class must appear in the training set. A label that appears only in the test or validation set stops the run with a clear message.
-- Sequences may be wrapped over several lines. Lower-case letters are upper-cased automatically. Non-standard letters (`X`, `B`, `Z`, `U`, `O`) are allowed. Any other character (e.g. `J`, digits) becomes ESM-2's "unknown" token; the log reports how many sequences contain such characters, and which ones.
+- Sequences may be wrapped over several lines. Lower-case letters are upper-cased automatically. Non-standard letters (`X`, `B`, `Z`, `U`, `O`) are allowed.
 - **Stop codons (`*`) are removed wherever they occur**, e.g. `ANPP*NNNN` becomes `ANPPNNNN`, because ESM-2 has no token for `*`. A trailing `*` (as written by Prodigal and many gene callers) is harmless. A `*` *inside* a sequence can mean a pseudogene, a frameshift or a translation error, and removing it joins the pieces on either side, so the log lists such sequences; consider checking or excluding them.
 
 ### Adding labels to existing FASTA headers

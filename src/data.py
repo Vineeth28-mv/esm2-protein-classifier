@@ -5,18 +5,15 @@ from collections import Counter
 import numpy as np
 from Bio import SeqIO
 
-# Characters in ESM-2's vocabulary: the 20 standard amino acids, the
-# ambiguity / rare codes X, B, U, Z, O, and the gap symbols '.' and '-'.
-# Anything else becomes ESM-2's "unknown" token.
-ESM_ALPHABET = set("LAGVSERTIDPKQNFYMHWCXBUZO.-")
-
 
 def read_fasta(path, delimiter="|", label_field=1, require_labels=True, split_labels=True):
     """Read a FASTA file.
 
-    split_labels=True (training, or prediction with --labelled): headers look
-    like ``>seqID|label``; the part before the first delimiter is the ID and
-    the field ``label_field`` is the label.
+    split_labels=True (training, or prediction with --labelled): the header is
+    split at ``delimiter``; field ``label_field`` (counted from 0) is the label
+    and the remaining field(s) form the ID. So both ``>seqID|label`` (default,
+    label_field=1) and ``>label;seqID`` (delimiter ";", label_field=0) give the
+    ID "seqID".
 
     split_labels=False (prediction without labels): the whole header word
     (everything before the first space) is the ID, so headers such as
@@ -27,16 +24,18 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True, split_la
     ids, seqs, labels = [], [], []
     missing = []
     n_trailing_stop, internal_stop_ids, only_stop_ids, empty_ids = 0, [], [], []
-    unknown_chars, unknown_ids = Counter(), []
     n_extra_delims = 0
     print(f"Reading {path} ...")
     for i, record in enumerate(SeqIO.parse(path, "fasta")):
         if split_labels:
             parts = record.id.split(delimiter)
-            if len(parts) > label_field + 1:
+            # A normal header has exactly two fields: an ID and a label.
+            if len(parts) > 2:
                 n_extra_delims += 1
-            seq_id = parts[0]
             label = parts[label_field] if len(parts) > label_field else None
+            # The ID is everything except the label field.
+            id_parts = [p for j, p in enumerate(parts) if j != label_field]
+            seq_id = delimiter.join(id_parts) if id_parts else record.id
             if label is None or label == "":
                 if require_labels:
                     missing.append(record.id)
@@ -56,12 +55,6 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True, split_la
         seq = raw.replace("*", "")
         if not seq:
             (only_stop_ids if raw else empty_ids).append(seq_id)
-
-        bad = set(seq) - ESM_ALPHABET
-        if bad:
-            unknown_ids.append(seq_id)
-            for ch in bad:
-                unknown_chars[ch] += 1
 
         ids.append(seq_id)
         seqs.append(seq)
@@ -92,20 +85,15 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True, split_la
         print(f"  NOTE: {len(internal_stop_ids):,} sequence(s) had '*' inside the sequence "
               f"(e.g. {', '.join(internal_stop_ids[:3])}); all '*' were removed. Internal stop "
               f"codons can indicate pseudogenes or frameshifts; you may want to check these.")
-    if unknown_ids:
-        chars = ", ".join(f"'{c}' ({n:,})" for c, n in unknown_chars.most_common())
-        print(f"  NOTE: {len(unknown_ids):,} sequence(s) contain characters that ESM-2 does not "
-              f"know: {chars} [number of sequences]. Each becomes ESM-2's 'unknown' token. "
-              f"Examples: {', '.join(unknown_ids[:3])}")
 
+    if n_extra_delims:
+        print(f"  WARNING: {n_extra_delims:,} header(s) contain more than one '{delimiter}' "
+              f"(e.g. UniProt '>sp|P0A7V8|RS4_ECOLI'), so the label may have been read from the "
+              f"wrong part of the header; see docs/data_format.md.")
     dup = [k for k, v in Counter(ids).items() if v > 1]
     if dup:
         print(f"  WARNING: {len(dup):,} sequence ID(s) occur more than once (e.g. '{dup[0]}'), "
               f"so rows in the output cannot all be told apart.")
-        if n_extra_delims:
-            print(f"  Hint: {n_extra_delims:,} header(s) contain more than one '{delimiter}' "
-                  f"(e.g. UniProt '>sp|P0A7V8|RS4_ECOLI'), so the ID may have been cut short; "
-                  f"see docs/data_format.md.")
 
     print(f"  {len(seqs):,} sequences")
     return ids, seqs, labels

@@ -269,35 +269,36 @@ def test_stop_codons_removed_everywhere():
         assert "contain only stop codons" in str(e) and "bad" in str(e), str(e)
 
 
-def test_unknown_characters_reported_not_removed():
+def _read(path, **kw):
     from src.data import read_fasta
-    path = _yaml("unk.fasta", ">a|x\nMKJAY\n>b|x\nMKTXAY\n>c|y\nMK1AJ\n")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        _, seqs, _ = read_fasta(path)
-    assert seqs == ["MKJAY", "MKTXAY", "MK1AJ"], "characters must not be removed"
-    log = buf.getvalue()
-    assert "2 sequence(s) contain characters that ESM-2 does not know" in log, log
-    assert "'J' (2)" in log and "'1' (1)" in log, log
-    assert "'X'" not in log, "X is a valid ESM-2 letter and must not be reported"
+        ids, seqs, labels = read_fasta(path, **kw)
+    return ids, labels, buf.getvalue()
 
 
 def test_header_parsing_modes():
-    from src.data import read_fasta
-    path = _yaml("uni.fasta", ">sp|P0A7V8|RS4_ECOLI desc\nMKTAY\n>tr|A0A001|X_BACSU d\nMSTNP\n")
-    with contextlib.redirect_stdout(io.StringIO()):
-        ids, _, labels = read_fasta(path, require_labels=False, split_labels=False)
+    # prediction without labels: whole header word kept as the ID
+    uni = _yaml("uni.fasta", ">sp|P0A7V8|RS4_ECOLI desc\nMKTAY\n>tr|A0A001|X_BACSU d\nMSTNP\n")
+    ids, labels, _ = _read(uni, require_labels=False, split_labels=False)
     assert ids == ["sp|P0A7V8|RS4_ECOLI", "tr|A0A001|X_BACSU"], ids
     assert labels == [None, None]
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        read_fasta(_yaml("dup.fasta", ">sp|P1|A\nMKT\n>sp|P2|B\nMST\n"), require_labels=False)
-    log = buf.getvalue()
-    assert "occur more than once" in log and "more than one '|'" in log, log
-    custom = _yaml("semi.fasta", ">id1;labA\nMKT\n>id2;labB\nMST\n")
-    with contextlib.redirect_stdout(io.StringIO()):
-        ids, _, labels = read_fasta(custom, delimiter=";", label_field=1)
+    # normal >ID|label: no warning
+    ids, labels, log = _read(_yaml("norm.fasta", ">id1|labA\nMKT\n>id2|labB\nMST\n"))
     assert ids == ["id1", "id2"] and labels == ["labA", "labB"]
+    assert "WARNING" not in log, log
+    # label FIRST (field 0): the ID must be the other field, not the label
+    ids, labels, log = _read(_yaml("first.fasta", ">labA;id1\nMKT\n>labA;id2\nMST\n"),
+                             delimiter=";", label_field=0)
+    assert ids == ["id1", "id2"], f"ID taken from the label field: {ids}"
+    assert labels == ["labA", "labA"]
+    assert "WARNING" not in log, f"false warning for a normal two-field header: {log}"
+    # extra separators in a training file are warned about
+    _, _, log = _read(_yaml("extra.fasta", ">sp|P1|A|labA\nMKT\n>sp|P2|B|labB\nMST\n"))
+    assert "contain more than one '|'" in log, log
+    # duplicate IDs are warned about
+    _, _, log = _read(_yaml("dup.fasta", ">same|labA\nMKT\n>same|labB\nMST\n"))
+    assert "occur more than once" in log, log
 
 
 def test_null_settings_fall_back_to_defaults():
@@ -522,9 +523,16 @@ def test_train_label_flags():
                 out.write(line)
         conv[name] = dst
     out = tmp("run_semicolon")
-    train(out, "--train", conv["train"], "--val", conv["val"], "--test", conv["test"],
-          "--label-delimiter", ";", "--label-field", "0", cache=tmp("cache"))
+    log = train(out, "--train", conv["train"], "--val", conv["val"], "--test", conv["test"],
+                "--label-delimiter", ";", "--label-field", "0", cache=tmp("cache"))
     assert load_summary(out)["classes"] == ["familyX", "other"]
+    assert "more than one ';'" not in log and "occur more than once" not in log, \
+        "false warnings for '>label;ID' headers"
+    # the IDs in the output must be the real sequence IDs, not the class names
+    preds = pd.read_csv(os.path.join(out, "predictions_test.csv"))
+    original = pd.read_csv(os.path.join(tmp("run_cls_val"), "predictions_test.csv"))
+    assert sorted(preds["seq_id"]) == sorted(original["seq_id"]), preds["seq_id"].head().tolist()
+    assert preds["seq_id"].is_unique
     with open(os.path.join(out, "best_model", "classifier_config.json")) as fh:
         mc = json.load(fh)
     assert (mc["label_delimiter"], mc["label_field"]) == (";", 0)
