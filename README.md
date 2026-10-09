@@ -31,7 +31,7 @@ It is a general version of the training pipeline built for mobileOG-db, with no 
 ## Quick start
 
 ```bash
-git clone https://github.com/<your-github-username>/esm2-protein-classifier.git
+git clone https://github.com/Vineeth28-mv/esm2-protein-classifier.git
 cd esm2-protein-classifier
 
 # Install (a fresh conda or venv environment is recommended)
@@ -196,9 +196,8 @@ All settings live in [`config.yaml`](config.yaml) and are documented there. The 
 | `training.selection_metric` | `mcc` | metric used to pick the best epoch (e.g. `mcc`, `f1_macro`, `f1_weighted`) |
 | `output.save_backbone` | `false` | copy ESM-2 into the model folder for offline use |
 
-If a setting is missing (or `null`) in both the command line and `config.yaml`, the default above is used. Text choices such as `pooling` and `selection_metric` are not case-sensitive (`MCC` = `mcc`). Misspelled setting names in `config.yaml` are reported as warnings.
+If a setting is missing (or `null`) in both the command line and `config.yaml`, the default above is used.
 
-If something is wrong (a missing file, an invalid setting), the scripts stop with a short message. Set `ESM2CLF_DEBUG=1` to see the full technical details.
 
 ---
 
