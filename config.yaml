@@ -1,0 +1,77 @@
+# =============================================================================
+# ESM-2 Protein Classifier — configuration
+# =============================================================================
+# Every setting here can also be overridden on the command line, e.g.
+#   python train.py --config config.yaml --train my.fasta --epochs 5 --pooling mean
+# Command-line values win over values in this file. Settings missing from both
+# fall back to built-in defaults (shown in the comments below).
+# =============================================================================
+
+data:
+  # FASTA files. Each header must look like:  >sequenceID|label
+  train: example_data/train.fasta
+  test: example_data/test.fasta
+  # Optional. If given, the best epoch is chosen on the validation set and the
+  # test set is evaluated only once. If null, the best epoch is chosen on the
+  # test set (this is reported clearly in the outputs). Use null (or false)
+  # for no validation file.
+  val: example_data/val.fasta
+
+  # How the label is read from the header. With ">abc123|familyX" the default
+  # delimiter "|" and label_field 1 give label "familyX" and ID "abc123".
+  label_delimiter: "|"
+  label_field: 1
+
+model:
+  # Any ESM-2 checkpoint from Hugging Face (or a local folder):
+  #   facebook/esm2_t6_8M_UR50D     8M params   (fastest, default)
+  #   facebook/esm2_t12_35M_UR50D   35M params
+  #   facebook/esm2_t30_150M_UR50D  150M params
+  #   facebook/esm2_t33_650M_UR50D  650M params (best, needs a large GPU)
+  name: facebook/esm2_t6_8M_UR50D
+  # Max tokens per sequence including the 2 special tokens, so up to 1022
+  # amino acids are used. Longer proteins are truncated (a note is printed).
+  # Allowed: 3 to 1024 (ESM-2 was trained on at most 1024 tokens).
+  max_length: 1024
+  # How one vector per protein is made from ESM-2's per-token output:
+  #   cls  - the <cls> start-token vector (default; the same as Hugging Face's
+  #          EsmForSequenceClassification and the original mobileOG pipeline)
+  #   mean - the average over all residues; the standard ESM per-protein
+  #          embedding and often better with a frozen ESM-2 (worth comparing)
+  pooling: cls
+
+embeddings:
+  # ESM-2 is frozen, so embeddings are computed once and stored here. Later
+  # runs on the same sequences (other labels, epochs, learning rate, pooling...)
+  # load them in seconds. Set to null to disable caching.
+  cache_dir: embedding_cache
+  # Sequences per batch when computing embeddings; lower it if the GPU runs
+  # out of memory (mainly for the 650M model and long proteins).
+  batch_size: 32
+  # Half precision (fp16) for ESM-2: auto (= on whenever a CUDA GPU is
+  # available), true or false. A CPU always uses full precision (fp32).
+  fp16: auto
+
+training:
+  # Settings for training the classification head.
+  epochs: 10
+  learning_rate: 1.0e-3
+  batch_size: 16
+  weight_decay: 0.01
+  # "balanced" gives rare classes a larger weight in the loss; "none" disables it.
+  class_weighting: balanced
+  # Metric used to pick the best epoch: mcc, accuracy, f1_macro, precision_macro,
+  # recall_macro, f1_weighted, precision_weighted or recall_weighted.
+  # (f1 / precision / recall on their own mean the macro average.)
+  selection_metric: mcc
+  seed: 42
+  # Training loss is logged every N steps (reduced automatically for small datasets).
+  logging_steps: 100
+
+output:
+  dir: results/example_run
+  # The saved model stores only the small trained head and the name of the
+  # ESM-2 model; ESM-2 is downloaded (or taken from the Hugging Face cache) when
+  # predict.py runs. Set to true to also copy ESM-2 into the model folder, so it
+  # works offline or on another machine (adds ~30 MB for 8M, ~2.6 GB for 650M).
+  save_backbone: false
