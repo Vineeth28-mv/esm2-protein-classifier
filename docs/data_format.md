@@ -15,11 +15,11 @@ MKKLLIVSAALLAGCSQVNAETIKVGVLHSLSGTMAISETAL
 
 Rules:
 
-- Everything before the first `|` is the ID; the field after it is the label. You can change both with `label_delimiter` and `label_field` in `config.yaml`.
+- Everything before the first `|` is the ID; the field after it is the label. You can change both with `label_delimiter` and `label_field` in `config.yaml`, or with `--label-delimiter` and `--label-field` on the command line (fields are counted from 0, so `>ID|label` has the label in field 1).
 - Anything after the first space in the header is ignored.
 - Labels must not contain spaces or `|`. They are case-sensitive (`FamilyX` and `familyX` are different classes).
 - Every training class must appear in the training set. A label that appears only in the test or validation set stops the run with a clear message.
-- Sequences may be wrapped over several lines. Lower-case letters are upper-cased automatically. Non-standard letters (`X`, `B`, `Z`, `U`, `O`) are allowed.
+- Sequences may be wrapped over several lines. Lower-case letters are upper-cased automatically. Non-standard letters (`X`, `B`, `Z`, `U`, `O`) are allowed. Any other character (e.g. `J`, digits) becomes ESM-2's "unknown" token; the log reports how many sequences contain such characters, and which ones.
 - **Stop codons (`*`) are removed wherever they occur**, e.g. `ANPP*NNNN` becomes `ANPPNNNN`, because ESM-2 has no token for `*`. A trailing `*` (as written by Prodigal and many gene callers) is harmless. A `*` *inside* a sequence can mean a pseudogene, a frameshift or a translation error, and removing it joins the pieces on either side, so the log lists such sequences; consider checking or excluding them.
 
 ### Adding labels to existing FASTA headers
@@ -33,7 +33,16 @@ sed -E 's/^>([^ ]+).*/>\1|other/'   background.fasta > other_labelled.fasta
 cat familyX_labelled.fasta other_labelled.fasta > all_labelled.fasta
 ```
 
-If your IDs already contain `|` (UniProt style `sp|P0A7V8|RS4_ECOLI`), replace it first, for example `sed -E 's/^>sp\|([^|]+)\|.*/>\1/'`.
+If your headers come from UniProt (`>sp|P0A7V8|RS4_ECOLI ...` or `>tr|A0A0B4J2F2|A0A0B4J2F2_HUMAN ...`), they already contain `|`. Reduce them to the accession first, then add the label, in one command:
+
+```bash
+sed -E 's/^>(sp|tr)\|([^|]+)\|[^ ]*/>\2/; s/^>([^ ]+).*/>\1|familyX/' uniprot.fasta > familyX_labelled.fasta
+# >sp|P0A7V8|RS4_ECOLI 30S ribosomal ...  becomes  >P0A7V8|familyX
+```
+
+Headers that do not start with `sp|` or `tr|` are left as they are by the first part of the command.
+
+**Prediction files need no preparation:** `predict.py` keeps the whole header as the ID unless you pass `--labelled`, so UniProt downloads can be used as they are.
 
 ## 2. Building a negative ("other") set
 

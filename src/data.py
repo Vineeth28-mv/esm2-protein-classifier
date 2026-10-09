@@ -1,29 +1,48 @@
-"""Reading labelled FASTA files and checking labels."""
+"""Reading FASTA files and checking labels."""
 
 from collections import Counter
 
 import numpy as np
 from Bio import SeqIO
 
+# Characters in ESM-2's vocabulary: the 20 standard amino acids, the
+# ambiguity / rare codes X, B, U, Z, O, and the gap symbols '.' and '-'.
+# Anything else becomes ESM-2's "unknown" token.
+ESM_ALPHABET = set("LAGVSERTIDPKQNFYMHWCXBUZO.-")
 
-def read_fasta(path, delimiter="|", label_field=1, require_labels=True):
-    """Read a FASTA file whose headers look like ``>seqID|label``.
 
-    Returns (ids, sequences, labels). ``labels`` contains None for records
-    without a label when ``require_labels`` is False.
+def read_fasta(path, delimiter="|", label_field=1, require_labels=True, split_labels=True):
+    """Read a FASTA file.
+
+    split_labels=True (training, or prediction with --labelled): headers look
+    like ``>seqID|label``; the part before the first delimiter is the ID and
+    the field ``label_field`` is the label.
+
+    split_labels=False (prediction without labels): the whole header word
+    (everything before the first space) is the ID, so headers such as
+    ``>sp|P0A7V8|RS4_ECOLI`` stay intact; all labels are None.
+
+    Returns (ids, sequences, labels).
     """
     ids, seqs, labels = [], [], []
     missing = []
-    n_trailing_stop, internal_stop_ids = 0, []
+    n_trailing_stop, internal_stop_ids, only_stop_ids, empty_ids = 0, [], [], []
+    unknown_chars, unknown_ids = Counter(), []
+    n_extra_delims = 0
     print(f"Reading {path} ...")
     for i, record in enumerate(SeqIO.parse(path, "fasta")):
-        parts = record.id.split(delimiter)
-        seq_id = parts[0]
-        label = parts[label_field] if len(parts) > label_field else None
-        if label is None or label == "":
-            if require_labels:
-                missing.append(record.id)
-            label = None
+        if split_labels:
+            parts = record.id.split(delimiter)
+            if len(parts) > label_field + 1:
+                n_extra_delims += 1
+            seq_id = parts[0]
+            label = parts[label_field] if len(parts) > label_field else None
+            if label is None or label == "":
+                if require_labels:
+                    missing.append(record.id)
+                label = None
+        else:
+            seq_id, label = record.id, None
 
         # ESM-2 has no token for '*' (it would become <unk>), so every stop
         # codon is removed, wherever it is: "ANPP*NNNN" -> "ANPPNNNN". Upper-
@@ -35,6 +54,14 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True):
             else:
                 n_trailing_stop += 1
         seq = raw.replace("*", "")
+        if not seq:
+            (only_stop_ids if raw else empty_ids).append(seq_id)
+
+        bad = set(seq) - ESM_ALPHABET
+        if bad:
+            unknown_ids.append(seq_id)
+            for ch in bad:
+                unknown_chars[ch] += 1
 
         ids.append(seq_id)
         seqs.append(seq)
@@ -50,6 +77,14 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True):
             f"{len(missing):,} sequence(s) in {path} have no label in the header "
             f"(expected '>ID{delimiter}label'). Examples: {examples}"
         )
+    if only_stop_ids:
+        raise ValueError(
+            f"{len(only_stop_ids):,} sequence(s) in {path} contain only stop codons ('*'), so "
+            f"nothing is left after removing them: {', '.join(only_stop_ids[:5])}"
+        )
+    if empty_ids:
+        raise ValueError(f"{len(empty_ids):,} empty sequence(s) found in {path}: "
+                         f"{', '.join(empty_ids[:5])}")
 
     if n_trailing_stop:
         print(f"  Removed the trailing stop codon '*' from {n_trailing_stop:,} sequence(s).")
@@ -57,13 +92,20 @@ def read_fasta(path, delimiter="|", label_field=1, require_labels=True):
         print(f"  NOTE: {len(internal_stop_ids):,} sequence(s) had '*' inside the sequence "
               f"(e.g. {', '.join(internal_stop_ids[:3])}); all '*' were removed. Internal stop "
               f"codons can indicate pseudogenes or frameshifts; you may want to check these.")
+    if unknown_ids:
+        chars = ", ".join(f"'{c}' ({n:,})" for c, n in unknown_chars.most_common())
+        print(f"  NOTE: {len(unknown_ids):,} sequence(s) contain characters that ESM-2 does not "
+              f"know: {chars} [number of sequences]. Each becomes ESM-2's 'unknown' token. "
+              f"Examples: {', '.join(unknown_ids[:3])}")
 
     dup = [k for k, v in Counter(ids).items() if v > 1]
     if dup:
-        print(f"  WARNING: {len(dup):,} duplicated sequence IDs (e.g. {dup[0]}).")
-    empty = sum(1 for s in seqs if len(s) == 0)
-    if empty:
-        raise ValueError(f"{empty:,} empty sequence(s) found in {path}.")
+        print(f"  WARNING: {len(dup):,} sequence ID(s) occur more than once (e.g. '{dup[0]}'), "
+              f"so rows in the output cannot all be told apart.")
+        if n_extra_delims:
+            print(f"  Hint: {n_extra_delims:,} header(s) contain more than one '{delimiter}' "
+                  f"(e.g. UniProt '>sp|P0A7V8|RS4_ECOLI'), so the ID may have been cut short; "
+                  f"see docs/data_format.md.")
 
     print(f"  {len(seqs):,} sequences")
     return ids, seqs, labels

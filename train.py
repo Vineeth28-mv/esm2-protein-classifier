@@ -19,7 +19,6 @@ Examples
 import argparse
 import json
 import os
-import sys
 import time
 
 import numpy as np
@@ -33,6 +32,7 @@ from transformers import AutoConfig, AutoTokenizer
 from src import data as D
 from src import metrics as M
 from src import plots as P
+from src.cli import run
 from src.config import load_config
 from src.embeddings import EmbeddingStore
 from src.model import ClassificationHead, head_logits, save_model, train_head
@@ -57,9 +57,13 @@ def parse_args():
                    help="ignore any validation file in the config")
     p.add_argument("--out", help="output folder")
     p.add_argument("--model", help="ESM-2 model name or local path")
-    p.add_argument("--pooling", choices=["cls", "mean"],
+    p.add_argument("--pooling", type=str.lower, choices=["cls", "mean"],
                    help="protein vector: cls (<cls> token, default) or mean (average over "
                         "residues)")
+    p.add_argument("--label-delimiter", dest="label_delimiter",
+                   help="character separating ID and label in headers (default: '|')")
+    p.add_argument("--label-field", dest="label_field", type=int,
+                   help="which header field holds the label, counting from 0 (default: 1)")
     p.add_argument("--max-length", dest="max_length", type=int,
                    help="max tokens per sequence (default: 1024)")
     p.add_argument("--epochs", type=int,
@@ -89,7 +93,7 @@ def main():
     if os.path.exists(args.config):
         config_path = args.config
     elif args.config != "config.yaml":
-        sys.exit(f"Config file not found: {args.config}")
+        raise FileNotFoundError(f"Config file not found: {args.config}")
     else:
         config_path = None                      # built-in defaults + command line only
     cfg = load_config(config_path, args)
@@ -128,7 +132,8 @@ def main():
     class_names = list(encoder.classes_)
     num_labels = len(class_names)
     if num_labels < 2:
-        sys.exit(f"Only one class found in the training set ({class_names}). Need at least 2.")
+        raise ValueError(f"Only one class found in the training set ({class_names}). "
+                         f"Need at least 2.")
     D.check_labels(class_names, test_labels, "test")
     if use_val:
         D.check_labels(class_names, val_labels, "validation")
@@ -267,6 +272,7 @@ def main():
     save_model(model_dir, best["state"], base_model=mcfg["name"], pooling=pooling,
                max_length=max_len, hidden_size=hidden_size, class_names=class_names,
                dropout=head_dropout, precision=store.precision, tokenizer=tokenizer,
+               label_delimiter=dcfg["label_delimiter"], label_field=dcfg["label_field"],
                backbone=store.backbone if ocfg["save_backbone"] else None)
 
     summary = {
@@ -306,4 +312,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run(main)

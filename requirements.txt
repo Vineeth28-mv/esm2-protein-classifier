@@ -1,4 +1,5 @@
-# Tested with Python 3.13, torch 2.14, and transformers 4.46.3 and 5.19.
+# Tested with Python 3.13 + torch 2.14 + transformers 4.46.3 and 5.19, and
+# independently with Python 3.9.6 + torch 2.8 + transformers 4.57.
 # For a GPU, install the PyTorch build matching your CUDA version first:
 #   https://pytorch.org/get-started/locally/
 torch>=2.1

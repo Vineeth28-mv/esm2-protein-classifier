@@ -54,6 +54,26 @@ CLI_MAP = {
     "selection_metric": ("training", "selection_metric"),
     "seed": ("training", "seed"),
     "out": ("output", "dir"),
+    "label_delimiter": ("data", "label_delimiter"),
+    "label_field": ("data", "label_field"),
+}
+
+# Settings where null has a meaning of its own ("none"/"disabled"); every
+# other setting falls back to its default when it is null.
+NULL_MEANS_NONE = {("data", "train"), ("data", "test"), ("data", "val"),
+                   ("embeddings", "cache_dir")}
+
+# Settings that must be numbers: (section, key) -> (type, smallest allowed)
+NUMERIC = {
+    ("model", "max_length"): (int, None),          # range checked separately
+    ("embeddings", "batch_size"): (int, 1),
+    ("training", "epochs"): (int, 1),
+    ("training", "learning_rate"): (float, None),
+    ("training", "batch_size"): (int, 1),
+    ("training", "weight_decay"): (float, 0.0),
+    ("training", "seed"): (int, None),
+    ("training", "logging_steps"): (int, 1),
+    ("data", "label_field"): (int, 0),
 }
 
 POOLINGS = ("cls", "mean")
@@ -108,14 +128,31 @@ def _deep_update(base, new):
     return base
 
 
+def _warn_unknown_keys(user_cfg, path):
+    for section, values in (user_cfg or {}).items():
+        if section not in DEFAULTS:
+            print(f"WARNING: unknown section '{section}' in {path} is ignored.")
+        elif isinstance(values, dict):
+            for key in values:
+                if key not in DEFAULTS[section]:
+                    print(f"WARNING: unknown setting '{section}.{key}' in {path} is ignored "
+                          f"(valid: {', '.join(DEFAULTS[section])}).")
+
+
 def load_config(path=None, cli_args=None):
     """Return a config dict: built-in defaults <- YAML file <- command-line flags."""
     cfg = copy.deepcopy(DEFAULTS)
     if path:
         with open(path) as fh:
-            _deep_update(cfg, yaml.safe_load(fh) or {})
+            user_cfg = yaml.safe_load(fh) or {}
+        _warn_unknown_keys(user_cfg, path)
+        _deep_update(cfg, user_cfg)
 
     if cli_args is not None:
+        if getattr(cli_args, "val", None) and getattr(cli_args, "no_val", False):
+            raise ValueError("Use either --val or --no-val, not both.")
+        if getattr(cli_args, "cache_dir", None) and getattr(cli_args, "no_cache", False):
+            raise ValueError("Use either --cache-dir or --no-cache, not both.")
         for flag, (section, key) in CLI_MAP.items():
             value = getattr(cli_args, flag, None)
             if value is not None:
@@ -136,31 +173,50 @@ def load_config(path=None, cli_args=None):
 
 
 def _validate(cfg):
+    # 1. Any setting left null falls back to its built-in default.
+    for section, defaults in DEFAULTS.items():
+        for key, default in defaults.items():
+            if cfg[section].get(key) is None and (section, key) not in NULL_MEANS_NONE:
+                cfg[section][key] = default
+
     if not cfg["data"]["train"]:
         raise ValueError("No training file given (data.train in config or --train).")
     if not cfg["data"]["test"]:
         raise ValueError("No test file given (data.test in config or --test).")
-    t = cfg["training"]
-    for key in ("epochs", "pooling"):
-        sect = "training" if key == "epochs" else "model"
-        if cfg[sect][key] is None:
-            cfg[sect][key] = DEFAULTS[sect][key]
-    if int(t["epochs"]) < 1:
-        raise ValueError(f"epochs must be at least 1, got {t['epochs']}.")
-    cfg["model"]["pooling"] = str(cfg["model"]["pooling"]).lower()
-    if cfg["model"]["pooling"] not in POOLINGS:
-        raise ValueError(f"pooling must be 'cls' or 'mean', got '{cfg['model']['pooling']}'.")
-    if t["selection_metric"] not in VALID_METRICS:
-        raise ValueError(f"selection_metric must be one of {VALID_METRICS}, "
-                         f"got '{t['selection_metric']}'.")
-    if t["class_weighting"] not in ("balanced", "none"):
-        raise ValueError("class_weighting must be 'balanced' or 'none'.")
-    if cfg["model"]["max_length"] is None:
-        cfg["model"]["max_length"] = DEFAULTS["model"]["max_length"]
-    if not 3 <= int(cfg["model"]["max_length"]) <= MAX_TOKENS:
+
+    # 2. Numbers must be numbers, within range.
+    for (section, key), (kind, minimum) in NUMERIC.items():
+        value = cfg[section][key]
+        try:
+            if isinstance(value, bool):
+                raise TypeError
+            converted = kind(value)
+            if kind is int and float(value) != converted:
+                raise TypeError
+        except (TypeError, ValueError):
+            raise ValueError(f"{section}.{key} must be a "
+                             f"{'whole number' if kind is int else 'number'}, got '{value}'.")
+        if minimum is not None and converted < minimum:
+            raise ValueError(f"{key} must be at least {minimum}, got {value}.")
+        cfg[section][key] = converted
+    if not 3 <= cfg["model"]["max_length"] <= MAX_TOKENS:
         raise ValueError(f"model.max_length must be between 3 and {MAX_TOKENS} (ESM-2 was "
                          f"trained on at most {MAX_TOKENS} tokens), got "
                          f"{cfg['model']['max_length']}.")
+
+    # 3. Text choices are case-insensitive.
+    m, t = cfg["model"], cfg["training"]
+    m["pooling"] = str(m["pooling"]).strip().lower()
+    if m["pooling"] not in POOLINGS:
+        raise ValueError(f"pooling must be 'cls' or 'mean', got '{m['pooling']}'.")
+    t["selection_metric"] = str(t["selection_metric"]).strip().lower()
+    if t["selection_metric"] not in VALID_METRICS:
+        raise ValueError(f"selection_metric must be one of {', '.join(VALID_METRICS)}; "
+                         f"got '{t['selection_metric']}'.")
+    t["class_weighting"] = str(t["class_weighting"]).strip().lower()
+    if t["class_weighting"] not in ("balanced", "none"):
+        raise ValueError(f"class_weighting must be 'balanced' or 'none', "
+                         f"got '{t['class_weighting']}'.")
     cfg["embeddings"]["fp16"] = parse_fp16(cfg["embeddings"]["fp16"])
-    if int(t["batch_size"]) < 1 or int(cfg["embeddings"]["batch_size"]) < 1:
-        raise ValueError("batch sizes must be at least 1.")
+    if not str(cfg["data"]["label_delimiter"]):
+        raise ValueError("label_delimiter must not be empty.")

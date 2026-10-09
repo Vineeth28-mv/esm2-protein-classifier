@@ -122,8 +122,12 @@ class EmbeddingStore:
     """
 
     def __init__(self, model_name, tokenizer, max_length, cache_dir=None, batch_size=32,
-                 fp16="auto"):
+                 fp16="auto", backbone_source=None):
+        """``backbone_source``: where to load ESM-2 from if it differs from
+        ``model_name`` (e.g. a copy saved inside a model folder). The cache
+        key always uses ``model_name``, so caches are shared between both."""
         self.model_name = model_name
+        self.backbone_source = backbone_source or model_name
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.cache_dir = cache_dir
@@ -136,8 +140,8 @@ class EmbeddingStore:
     @property
     def backbone(self):
         if self._backbone is None:
-            print(f"  Loading ESM-2 backbone: {self.model_name}")
-            self._backbone = load_backbone(self.model_name)
+            print(f"  Loading ESM-2 backbone: {self.backbone_source}")
+            self._backbone = load_backbone(self.backbone_source)
         return self._backbone
 
     def get(self, seqs, set_name):
@@ -147,8 +151,8 @@ class EmbeddingStore:
             key = cache_key(self.model_name, self.max_length, seqs, self.precision)
             path = os.path.join(self.cache_dir, f"{key}.npz")
             if os.path.exists(path):
-                data = np.load(path)
-                emb = {p: data[p] for p in POOLINGS}
+                with np.load(path) as data:
+                    emb = {p: data[p] for p in POOLINGS}
                 if all(len(emb[p]) == len(seqs) for p in POOLINGS):
                     print(f"  {set_name}: loaded {len(seqs):,} embeddings from cache ({path})")
                     return emb, True

@@ -260,6 +260,103 @@ def test_stop_codons_removed_everywhere():
     log = buf.getvalue()
     assert "trailing stop codon '*' from 1 sequence" in log, log
     assert "2 sequence(s) had '*' inside the sequence" in log, log
+    only = _yaml("onlystop.fasta", ">ok|x\nMKT\n>bad|x\n***\n")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            read_fasta(only)
+        raise AssertionError("sequence of only stop codons accepted")
+    except ValueError as e:
+        assert "contain only stop codons" in str(e) and "bad" in str(e), str(e)
+
+
+def test_unknown_characters_reported_not_removed():
+    from src.data import read_fasta
+    path = _yaml("unk.fasta", ">a|x\nMKJAY\n>b|x\nMKTXAY\n>c|y\nMK1AJ\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _, seqs, _ = read_fasta(path)
+    assert seqs == ["MKJAY", "MKTXAY", "MK1AJ"], "characters must not be removed"
+    log = buf.getvalue()
+    assert "2 sequence(s) contain characters that ESM-2 does not know" in log, log
+    assert "'J' (2)" in log and "'1' (1)" in log, log
+    assert "'X'" not in log, "X is a valid ESM-2 letter and must not be reported"
+
+
+def test_header_parsing_modes():
+    from src.data import read_fasta
+    path = _yaml("uni.fasta", ">sp|P0A7V8|RS4_ECOLI desc\nMKTAY\n>tr|A0A001|X_BACSU d\nMSTNP\n")
+    with contextlib.redirect_stdout(io.StringIO()):
+        ids, _, labels = read_fasta(path, require_labels=False, split_labels=False)
+    assert ids == ["sp|P0A7V8|RS4_ECOLI", "tr|A0A001|X_BACSU"], ids
+    assert labels == [None, None]
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        read_fasta(_yaml("dup.fasta", ">sp|P1|A\nMKT\n>sp|P2|B\nMST\n"), require_labels=False)
+    log = buf.getvalue()
+    assert "occur more than once" in log and "more than one '|'" in log, log
+    custom = _yaml("semi.fasta", ">id1;labA\nMKT\n>id2;labB\nMST\n")
+    with contextlib.redirect_stdout(io.StringIO()):
+        ids, _, labels = read_fasta(custom, delimiter=";", label_field=1)
+    assert ids == ["id1", "id2"] and labels == ["labA", "labB"]
+
+
+def test_null_settings_fall_back_to_defaults():
+    path = _yaml("allnull.yaml", "training:\n  learning_rate: null\n  batch_size: null\n"
+                                 "  weight_decay: null\n  seed: null\n  logging_steps: null\n"
+                                 "  selection_metric: null\n  class_weighting: null\n"
+                                 "embeddings:\n  batch_size: null\n  fp16: null\n"
+                                 "output:\n  dir: null\n")
+    cfg = load_config(path, _cli())
+    t = cfg["training"]
+    assert (t["learning_rate"], t["batch_size"], t["weight_decay"], t["seed"]) == \
+        (1e-3, 16, 0.01, 42), t
+    assert t["selection_metric"] == "mcc" and t["class_weighting"] == "balanced"
+    assert cfg["embeddings"]["batch_size"] == 32 and cfg["embeddings"]["fp16"] == "auto"
+    assert cfg["output"]["dir"] == "results/run"
+
+
+def test_text_choices_case_insensitive_and_numbers_checked():
+    cfg = load_config(_yaml("case.yaml", "model:\n  pooling: MEAN\ntraining:\n"
+                                         "  class_weighting: Balanced\n"), _cli(selection_metric="MCC"))
+    assert cfg["model"]["pooling"] == "mean"
+    assert cfg["training"]["selection_metric"] == "mcc"
+    assert cfg["training"]["class_weighting"] == "balanced"
+    for text, msg in (("training:\n  learning_rate: fast\n", "must be a number"),
+                      ("training:\n  batch_size: 2.5\n", "must be a whole number"),
+                      ("training:\n  epochs: true\n", "must be a whole number")):
+        try:
+            load_config(_yaml("bad.yaml", text), _cli())
+            raise AssertionError(f"accepted: {text!r}")
+        except ValueError as e:
+            assert msg in str(e), str(e)
+
+
+def test_unknown_config_keys_warned():
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        load_config(_yaml("typo.yaml", "training:\n  learning-rate: 0.1\nmodle:\n  x: 1\n"), _cli())
+    log = buf.getvalue()
+    assert "unknown setting 'training.learning-rate'" in log, log
+    assert "unknown section 'modle'" in log, log
+
+
+def test_conflicting_flags_rejected():
+    for kwargs, msg in ((dict(val="v.fasta", no_val=True), "either --val or --no-val"),
+                        (dict(cache_dir="c", no_cache=True), "either --cache-dir or --no-cache")):
+        try:
+            load_config(None, _cli(**kwargs))
+            raise AssertionError(f"conflict accepted: {kwargs}")
+        except ValueError as e:
+            assert msg in str(e)
+
+
+def test_epoch_plot_with_many_epochs():
+    from src.plots import plot_epoch_metrics
+    epochs = list(range(1, 51))
+    scores = {"mcc": [e / 60 for e in epochs], "accuracy": [0.5 + e / 120 for e in epochs]}
+    out = tmp("many_epochs.png")
+    plot_epoch_metrics(epochs, scores, 37, "validation", out)
+    assert os.path.getsize(out) > 0
 
 
 def test_train_cls_with_validation():
@@ -366,7 +463,7 @@ def test_no_cache_writes_nothing():
 def _check_predict_matches(run_dir):
     out_csv = os.path.join(run_dir, "repredict.csv")
     log = run("predict.py", "--model", os.path.join(run_dir, "best_model"),
-              "--fasta", os.path.join(DATA, "test.fasta"), "--out", out_csv)
+              "--fasta", os.path.join(DATA, "test.fasta"), "--out", out_csv, "--labelled")
     a = pd.read_csv(os.path.join(run_dir, "predictions_test.csv"))
     b = pd.read_csv(out_csv)
     assert (a["predicted_label"] == b["predicted_label"]).all(), "predict.py disagrees with train.py"
@@ -394,6 +491,47 @@ def test_predict_records_and_follows_training_precision():
     log = run("predict.py", "--model", os.path.join(run_dir, "best_model"), "--no-fp16",
               "--fasta", os.path.join(DATA, "unlabelled.fasta"), "--out", tmp("p_prec2.csv"))
     assert "Embedding precision: fp32" in log
+
+
+def test_predict_keeps_uniprot_headers_whole():
+    uni = tmp("uniprot.fasta")
+    with open(uni, "w") as fh:
+        fh.write(">sp|P0A7V8|RS4_ECOLI 30S protein S4\nMARYLGPKLKLSRREGTDLFLKSGVRAIDTKCKIEQ\n"
+                 ">sp|P12345|ABC_HUMAN Some protein\nMSTNPKPQRKTKRNTNRRPQDVKFPGGGQIVGGV\n"
+                 ">tr|A0A001|XYZ_BACSU Uncharacterized\nMAHWKLLVAGTLLLSGCAQ\n")
+    out_csv = tmp("uniprot_pred.csv")
+    log = run("predict.py", "--model", os.path.join(tmp("run_cls_val"), "best_model"),
+              "--fasta", uni, "--out", out_csv)
+    df = pd.read_csv(out_csv)
+    assert df["seq_id"].tolist() == ["sp|P0A7V8|RS4_ECOLI", "sp|P12345|ABC_HUMAN",
+                                     "tr|A0A001|XYZ_BACSU"], df["seq_id"].tolist()
+    assert "true_label" not in df.columns
+    assert "not classes of the model" not in log and "Metrics" not in log
+    assert "add --labelled" in log, "expected a hint about --labelled"
+
+
+def test_train_label_flags():
+    conv = {}
+    for name in ("train", "val", "test"):
+        dst = tmp(f"{name}_semicolon.fasta")
+        with open(os.path.join(DATA, f"{name}.fasta")) as src, open(dst, "w") as out:
+            for line in src:
+                if line.startswith(">"):
+                    seq_id, label = line[1:].strip().split("|")
+                    line = f">{label};{seq_id}\n"            # label first, ';' separator
+                out.write(line)
+        conv[name] = dst
+    out = tmp("run_semicolon")
+    train(out, "--train", conv["train"], "--val", conv["val"], "--test", conv["test"],
+          "--label-delimiter", ";", "--label-field", "0", cache=tmp("cache"))
+    assert load_summary(out)["classes"] == ["familyX", "other"]
+    with open(os.path.join(out, "best_model", "classifier_config.json")) as fh:
+        mc = json.load(fh)
+    assert (mc["label_delimiter"], mc["label_field"]) == (";", 0)
+    # predict --labelled reuses the training label format automatically
+    log = run("predict.py", "--model", os.path.join(out, "best_model"), "--labelled",
+              "--fasta", conv["test"], "--out", tmp("semi_pred.csv"))
+    assert "Metrics against the labels" in log, log[-1000:]
 
 
 def test_predict_unlabelled():
@@ -438,6 +576,13 @@ def test_error_unseen_label():
 def test_error_bad_options():
     log = run("train.py", "--model", TINY, "--epochs", "0", expect_fail=True)
     assert "epochs must be at least 1" in log
+    assert "Traceback" not in log, "errors should be a short message, not a traceback"
+    assert log.strip().splitlines()[-2].startswith("Error:"), log
+    log = run("train.py", "--model", TINY, "--val", "x.fasta", "--no-val", expect_fail=True)
+    assert "either --val or --no-val" in log and "Traceback" not in log
+    log = run("predict.py", "--model", tmp("does_not_exist"), "--fasta", "x.fa",
+              expect_fail=True)
+    assert "Model folder not found" in log and "Traceback" not in log
     log = run("train.py", "--model", TINY, "--pooling", "max", expect_fail=True)
     assert "invalid choice" in log
     log = run("train.py", "--model", TINY, "--selection-metric", "auc", expect_fail=True)

@@ -68,7 +68,7 @@ MKKLLIVSAALLAGCSQ...
 MSNQEIRVLLVDDHPLV...
 ```
 
-- Everything before the first `|` is the sequence ID; the part after it is the label.
+- Everything before the first `|` is the sequence ID; the part after it is the label. (A different separator or field can be set with `--label-delimiter` / `--label-field`.)
 - Labels can be any text without spaces or `|`, for example `familyX`, `integrase`, `class_3`.
 - You need **at least two classes**. A typical feasibility test is binary: your family vs. a background set.
 - Stop codons (`*`) are removed automatically wherever they occur (`ANPP*NNNN` → `ANPPNNNN`), and sequences are upper-cased. Sequences with a `*` in the middle are listed in the log so you can check them.
@@ -152,7 +152,16 @@ python predict.py --model results/familyX_run1/best_model \
                   --out predictions.csv
 ```
 
-Headers can be plain (`>seqID`) or labelled (`>seqID|label`). If every sequence has a label, the metrics are printed too. The pooling method, `max_length` and numeric precision used in training are read from the model folder automatically (override the precision with `--fp16` / `--no-fp16`).
+**Any header format works.** By default the whole header word is kept as the sequence ID, so files downloaded from UniProt (`>sp|P0A7V8|RS4_ECOLI ...`) can be used as they are, and every row of the output stays identifiable.
+
+**To check the model on a labelled file** (`>seqID|label`) and get MCC, F1 etc., add `--labelled`:
+
+```bash
+python predict.py --model results/familyX_run1/best_model --fasta test.fasta \
+                  --out test_predictions.csv --labelled
+```
+
+With `--labelled`, labels are read the same way as in training (the label format is saved with the model). The pooling method, `max_length` and numeric precision used in training are also read from the model folder automatically (override the precision with `--fp16` / `--no-fp16`).
 
 The saved model stores only the trained head (small) plus the name of the ESM-2 model, which is loaded from Hugging Face (or its local cache) when `predict.py` runs. To make the model folder self-contained, e.g. for an offline cluster node or another computer, train with `--save-backbone` to copy ESM-2 into it.
 
@@ -205,7 +214,9 @@ All settings live in [`config.yaml`](config.yaml) and are documented there. The 
 | `training.selection_metric` | `mcc` | metric used to pick the best epoch (e.g. `mcc`, `f1_macro`, `f1_weighted`) |
 | `output.save_backbone` | `false` | copy ESM-2 into the model folder for offline use |
 
-If a setting is missing from both the command line and `config.yaml`, the default above is used.
+If a setting is missing (or `null`) in both the command line and `config.yaml`, the default above is used. Text choices such as `pooling` and `selection_metric` are not case-sensitive (`MCC` = `mcc`). Misspelled setting names in `config.yaml` are reported as warnings.
+
+If something is wrong (a missing file, an invalid setting), the scripts stop with a short message. Set `ESM2CLF_DEBUG=1` to see the full technical details.
 
 ---
 
@@ -251,7 +262,7 @@ python train.py --config config.yaml --model facebook/esm2_t12_35M_UR50D --out r
 python tests/run_tests.py
 ```
 
-Runs 26 checks in 2–4 minutes on a CPU, without internet: it builds a tiny randomly initialised ESM-2 and checks, among other things, that `cls` pooling reproduces Hugging Face's `EsmForSequenceClassification` exactly, that mean pooling ignores special tokens and padding, that the cache is reused correctly, that results are reproducible, and that `predict.py` reproduces the training predictions. It tests the code, not the quality of real ESM-2.
+Runs 35 checks in 2–4 minutes on a CPU, without internet: it builds a tiny randomly initialised ESM-2 and checks, among other things, that `cls` pooling reproduces Hugging Face's `EsmForSequenceClassification` exactly, that mean pooling ignores special tokens and padding, that the cache is reused correctly, that results are reproducible, and that `predict.py` reproduces the training predictions. It tests the code, not the quality of real ESM-2.
 
 ---
 
@@ -267,7 +278,14 @@ Runs 26 checks in 2–4 minutes on a CPU, without internet: it builds a tiny ran
 
 - Python 3.9 or newer
 - PyTorch 2.1 or newer (a GPU is strongly recommended for computing embeddings of more than ~10,000 sequences; training the head is fast either way)
-- Hugging Face `transformers` 4.46 or newer (tested with 4.46.3 and 5.19)
+- Hugging Face `transformers` 4.46 or newer
+
+Tested combinations (all run with `python tests/run_tests.py`):
+
+| Python | PyTorch | transformers |
+|---|---|---|
+| 3.13 | 2.14 | 4.46.3 and 5.19 |
+| 3.9.6 | 2.8 | 4.57 (independent check, earlier version of the code) |
 
 Install with `pip install -r requirements.txt`. For GPU support, install the PyTorch build that matches your CUDA version first (see <https://pytorch.org/get-started/locally/>).
 

@@ -123,7 +123,8 @@ def train_head(X_train, y_train, X_sel, y_sel, num_labels, *, epochs, learning_r
 
 
 def save_model(out_dir, head_state, *, base_model, pooling, max_length, hidden_size,
-               class_names, dropout, precision, tokenizer, backbone=None):
+               class_names, dropout, precision, tokenizer, label_delimiter="|",
+               label_field=1, backbone=None):
     """Save a trained classifier. If ``backbone`` is given it is copied into the folder."""
     os.makedirs(out_dir, exist_ok=True)
     torch.save(head_state, os.path.join(out_dir, HEAD_WEIGHTS))
@@ -141,6 +142,8 @@ def save_model(out_dir, head_state, *, base_model, pooling, max_length, hidden_s
         "num_labels": len(class_names),
         "class_names": list(class_names),
         "head_dropout": dropout,
+        "label_delimiter": label_delimiter,
+        "label_field": label_field,
     }
     with open(os.path.join(out_dir, MODEL_CONFIG), "w") as fh:
         json.dump(cfg, fh, indent=2)

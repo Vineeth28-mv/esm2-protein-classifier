@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("Agg")  # no display needed (works on HPC nodes)
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MaxNLocator
 
 
 def plot_training_loss(log_history, path):
@@ -33,7 +34,10 @@ def plot_epoch_metrics(epochs, scores, best_epoch, selection_set, path):
         ax.set_xlabel("Epoch")
         ax.set_ylabel(metric.upper() if metric == "mcc" else metric.capitalize())
         ax.set_title(f"{ax.get_ylabel()} on {selection_set} set")
-        ax.set_xticks(epochs)
+        if len(epochs) <= 20:
+            ax.set_xticks(epochs)
+        else:                                   # avoid crowded, overlapping labels
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True))
         ax.grid(alpha=0.3)
         ax.legend()
     plt.tight_layout()
