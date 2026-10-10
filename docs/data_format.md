@@ -43,7 +43,7 @@ Always quote the separator (`";"`, not `;`).
 
 - Only the text before the first space is read: `>WP_0001|familyX some description` works, `>WP_0001 familyX` does not.
 - Every header needs a label.
-- Labels are case-sensitive and can't contain spaces or the separator.
+- In training files, labels are case-sensitive (`FamilyX` and `familyX` are two classes). `predict.py --labelled` ignores case when comparing with the model's classes. Labels can't contain spaces or the separator.
 - You need at least 2 classes. Every class in the validation and test files must also appear in the training file.
 - Train, validation and test files must use the same header format.
 

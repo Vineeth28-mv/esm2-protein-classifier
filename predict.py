@@ -52,6 +52,20 @@ def parse_args():
     return p.parse_args()
 
 
+def match_label_case(labels, class_names):
+    """Spell each label like the model's class name it matches, ignoring case
+    ("familyx" -> "FAMILYX"). Skipped if two model classes differ only by case."""
+    by_lower = {c.lower(): c for c in class_names}
+    if len(by_lower) < len(class_names):
+        return labels
+    matched = [by_lower.get(l.lower(), l) for l in labels]
+    n_changed = sum(a != b for a, b in zip(labels, matched))
+    if n_changed:
+        print(f"  NOTE: {n_changed:,} label(s) differ from the model's class names only in "
+              f"upper/lower case; they were matched ignoring case. Model classes: {class_names}")
+    return matched
+
+
 def main():
     args = parse_args()
     if not os.path.isdir(args.model):
@@ -67,6 +81,8 @@ def main():
     field = args.label_field if args.label_field is not None else cfg.get("label_field", 1)
     ids, seqs, labels = D.read_fasta(args.fasta, delimiter=delimiter, label_field=field,
                                      require_labels=args.labelled, split_labels=args.labelled)
+    if args.labelled:
+        labels = match_label_case(labels, class_names)
     if not args.labelled and any(delimiter in i for i in ids):
         print(f"  Hint: headers contain '{delimiter}'. They are kept whole as IDs. If they are "
               f"'>ID{delimiter}label' and you want metrics, add --labelled.")
@@ -117,6 +133,11 @@ def main():
             scores = M.compute_all(y_true, logits.argmax(1), len(class_names))
             print("\nMetrics against the labels in the FASTA headers:")
             print(M.format_scores(scores))
+            absent = [c for c in class_names if c not in set(labels)]
+            if absent:
+                not_meaningful = "macro and MCC are" if len(set(labels)) == 1 else "macro is"
+                print(f"\n  WARNING: model class(es) {absent} do not appear in this file. Use "
+                      f"accuracy (or weighted); {not_meaningful} not meaningful here.")
 
 
 if __name__ == "__main__":
