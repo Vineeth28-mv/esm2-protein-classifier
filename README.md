@@ -115,8 +115,8 @@ ESM-2 outputs one vector per amino acid. The classifier needs one vector per pro
 
 | `--pooling` | Protein vector | Notes |
 |---|---|---|
-| `cls` (**default**) | the vector of the special `<cls>` start token | what Hugging Face's `EsmForSequenceClassification` uses, and the method of the original mobileOG pipeline |
-| `mean` | the average of all residue vectors (start/end tokens and padding excluded) | the standard per-protein ESM embedding; often better with a frozen ESM-2 |
+| `cls` (**default**) | the vector of the special `<cls>` start token | what Hugging Face's `EsmForSequenceClassification` uses |
+| `mean` | the average of all residue vectors (start/end tokens and padding excluded) | the standard per-protein ESM embedding |
 
 ```bash
 python train.py --config config.yaml --pooling cls  --out results/familyX_cls
